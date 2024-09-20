@@ -1,0 +1,10 @@
+name: microbial-energy-economy-game
+title:
+username: gavin-mcnicol
+account: gavin-mcnicol
+server: shinyapps.io
+hostUrl: https://api.shinyapps.io/v1
+appId: 12769104
+bundleId: 9122950
+url: https://gavin-mcnicol.shinyapps.io/microbial-energy-economy-game/
+version: 1

@@ -9,20 +9,20 @@ setup_game <- function(scenario) {
   
   # Common starting structure for all scenarios
   players <- list(
-    "oxygen" = list(type = "acceptor", ATP_per_electron = 3, available = ifelse(scenario == 1, Inf, 3)),
-    "nitrate" = list(type = "acceptor", ATP_per_electron = 2, available = ifelse(scenario == 1, 0, 5)),
-    "iron" = list(type = "acceptor", ATP_per_electron = 1, available = ifelse(scenario == 1, 0, 5)),
+    "oxygen" = list(type = "acceptor", ATP_per_electron = 3, available = ifelse(scenario == 1, 999, 3)),
+    "nitrate" = list(type = "acceptor", ATP_per_electron = 3, available = ifelse(scenario == 1, 0, 5)),
+    "iron" = list(type = "acceptor", ATP_per_electron = 2, available = ifelse(scenario == 1, 0, 5)),
     "sulfur" = list(type = "acceptor", ATP_per_electron = 1, available = ifelse(scenario == 1, 0, 5)),
     "CO2" = list(type = "acceptor", ATP_per_electron = 1, available = 0, every_other_turn = TRUE),
     "cellulose" = list(type = "donor", available = ifelse(scenario == 1, 3, 0), can_use = FALSE),
     "glucose" = list(type = "donor", available = ifelse(scenario == 1, 3, 3), can_use = TRUE),
     "acetate" = list(type = "donor", available = 0, can_use = TRUE),
-    "lactic_acid" = list(type = "donor", available = 0, can_use = TRUE),
+    "org_acid" = list(type = "donor", available = 0, can_use = TRUE),
     "hydrogen" = list(type = "donor", available = 0, can_use = TRUE)
   )
   
-  # Heterotroph starting state with 6 ATP
-  heterotroph <- list(ATP = 6, evolution_stage = 0, count = 1, alive = TRUE, evolved_paths = list(growth = FALSE, exo_enzymes = FALSE, anaerobiosis = FALSE, fermentation = FALSE))
+  # Heterotroph starting state with 0 ATP
+  heterotroph <- list(ATP = 0, evolution_stage = 0, count = 1, alive = TRUE, evolved_paths = list(growth = FALSE, exo_enzymes = FALSE, anaerobiosis = FALSE, fermentation = FALSE))
   
   return(list(players = players, heterotroph = heterotroph, turn_counter = 1, scenario = scenario))
 }
@@ -30,41 +30,50 @@ setup_game <- function(scenario) {
 # Perform electron transfer and ATP generation
 perform_electron_transfer <- function(game_state, donor, acceptor) {
   
-  # Check if the donor can be used
-  if (!game_state$players[[donor]]$can_use || game_state$players[[donor]]$available <= 0) {
-    return(game_state)  # Donor cannot be used or is exhausted
+  # Check if cellulose can be used (only after exo-enzymes evolve)
+  if (donor == "cellulose" && !game_state$heterotroph$evolved_paths$exo_enzymes) {
+    return(game_state)  # Exo-enzymes not evolved yet, cellulose cannot be used
   }
   
-  if (game_state$players[[acceptor]]$available <= 0) {
-    return(game_state)  # Acceptor exhausted
-  }
-  
-  # Handle CO2 special case
-  if (acceptor == "CO2" && game_state$turn_counter %% 2 == 0) {
-    return(game_state)  # CO2 can only be used every other turn
-  }
-  
-  # Transfer the electron and generate ATP
-  game_state$players[[donor]]$available <- game_state$players[[donor]]$available - 1
-  game_state$players[[acceptor]]$available <- game_state$players[[acceptor]]$available - 1
-  ATP_generated <- game_state$players[[acceptor]]$ATP_per_electron
-  
-  # Divide ATP among heterotrophs and check for deaths
+  # Determine the number of electron transfers that can occur
   total_heterotrophs <- game_state$heterotroph$count
-  ATP_per_heterotroph <- floor(ATP_generated / total_heterotrophs)
-  remaining_ATP <- ATP_generated %% total_heterotrophs
+  available_donors <- game_state$players[[donor]]$available
+  available_acceptors <- game_state$players[[acceptor]]$available
   
-  # Only allocate newly generated ATP
-  if (ATP_per_heterotroph == 0) {
-    # Some heterotrophs will die if there isn't enough ATP
-    heterotrophs_to_die <- total_heterotrophs - remaining_ATP
-    game_state$heterotroph$count <- max(0, game_state$heterotroph$count - heterotrophs_to_die)
+  transfers <- min(total_heterotrophs, available_donors, available_acceptors)
+  
+  if (transfers == 0) {
+    return(game_state)  # No transfers possible
   }
   
-  if (game_state$heterotroph$count == 0) {
-    game_state$heterotroph$alive <- FALSE  # All heterotrophs died
+  # Transfer the electrons and generate ATP
+  game_state$players[[donor]]$available <- game_state$players[[donor]]$available - transfers
+  game_state$players[[acceptor]]$available <- game_state$players[[acceptor]]$available - transfers
+  ATP_generated <- game_state$players[[acceptor]]$ATP_per_electron * transfers
+  
+  # Add ATP to the heterotroph community
+  game_state$heterotroph$ATP <- game_state$heterotroph$ATP + ATP_generated
+  
+  return(game_state)
+}
+
+# Consume ATP for maintenance respiration
+consume_maintenance_ATP <- function(game_state) {
+  total_heterotrophs <- game_state$heterotroph$count
+  required_ATP <- total_heterotrophs  # One ATP per microbe
+  
+  # If not enough ATP is available, heterotrophs die
+  if (game_state$heterotroph$ATP < required_ATP) {
+    heterotrophs_to_die <- total_heterotrophs - game_state$heterotroph$ATP
+    game_state$heterotroph$count <- max(0, game_state$heterotroph$count - heterotrophs_to_die)
+    game_state$heterotroph$ATP <- 0  # Use up all remaining ATP
   } else {
-    game_state$heterotroph$ATP <- game_state$heterotroph$ATP + ATP_generated  # Add ATP to the community
+    game_state$heterotroph$ATP <- game_state$heterotroph$ATP - required_ATP  # Deduct ATP for maintenance
+  }
+  
+  # If no heterotrophs remain alive
+  if (game_state$heterotroph$count == 0) {
+    game_state$heterotroph$alive <- FALSE
   }
   
   return(game_state)
@@ -73,13 +82,13 @@ perform_electron_transfer <- function(game_state, donor, acceptor) {
 # Evolve heterotroph based on path chosen
 evolve_heterotroph <- function(game_state, evolution_path) {
   
-  if (game_state$heterotroph$ATP < 6) {
+  if (game_state$heterotroph$ATP < 3) {  # Minimum threshold is 3 ATP
     return(game_state)  # Not enough ATP
   }
   
   if (evolution_path == "growth") {
     # Growth ability can be used multiple times to double the number of heterotrophs
-    game_state$heterotroph$ATP <- game_state$heterotroph$ATP - 6
+    game_state$heterotroph$ATP <- game_state$heterotroph$ATP - 3
     game_state$heterotroph$count <- game_state$heterotroph$count * 2  # Double heterotroph count each time
     return(game_state)
   }
@@ -89,7 +98,7 @@ evolve_heterotroph <- function(game_state, evolution_path) {
   }
   
   # Spend ATP and evolve in chosen path
-  game_state$heterotroph$ATP <- game_state$heterotroph$ATP - 6
+  game_state$heterotroph$ATP <- game_state$heterotroph$ATP - 3
   game_state$heterotroph$evolved_paths[[evolution_path]] <- TRUE
   
   # Evolution effects
@@ -106,9 +115,9 @@ evolve_heterotroph <- function(game_state, evolution_path) {
     game_state$players$sulfur$available <- 5
     
   } else if (evolution_path == "fermentation") {
-    # Allows fermentation: glucose -> lactic acid -> acetate -> hydrogen
-    game_state$players$lactic_acid$available <- game_state$players$glucose$available
-    game_state$players$acetate$available <- game_state$players$lactic_acid$available
+    # Allows fermentation: glucose -> org_acid -> acetate -> hydrogen
+    game_state$players$org_acid$available <- game_state$players$glucose$available
+    game_state$players$acetate$available <- game_state$players$org_acid$available
     game_state$players$hydrogen$available <- game_state$players$acetate$available
   }
   
@@ -141,7 +150,7 @@ ui <- fluidPage(
       selectInput("scenario", "Select Scenario", choices = c("1: Unlimited Oxygen", "2: Oxygen Limiting", "3: Oxygen Pulse", "4: Photoautotroph")),
       actionButton("start_btn", "Start Game"),
       br(),
-      selectInput("donor", "Choose an Electron Donor", choices = c("cellulose", "glucose", "acetate", "lactic_acid", "hydrogen")),
+      uiOutput("donor_ui"), # Dynamically update the electron donor UI
       selectInput("acceptor", "Choose an Electron Acceptor", choices = c("oxygen", "nitrate", "iron", "sulfur", "CO2")),
       actionButton("transfer_btn", "Transfer Electron"),
       br(),
@@ -150,7 +159,8 @@ ui <- fluidPage(
       h3("Heterotroph Status"),
       textOutput("heterotroph_status"),
       h3("Game Status"),
-      textOutput("game_status")
+      textOutput("game_status"),
+      imageOutput("game_image")  # Add this to display the image
     ),
     
     mainPanel(
@@ -172,29 +182,19 @@ server <- function(input, output, session) {
   observeEvent(input$start_btn, {
     scenario <- as.integer(sub(":.*", "", input$scenario))  # Extract scenario number
     game_state(setup_game(scenario))
-  })
-  
-  observeEvent(input$transfer_btn, {
-    new_state <- perform_electron_transfer(game_state(), input$donor, input$acceptor)
-    new_state$turn_counter <- new_state$turn_counter + 1
-    game_state(new_state)
     
-    # Check if the game is over
-    result <- check_game_over(new_state)
-    if (result$game_over) {
-      if (result$win) {
-        showModal(modalDialog(title = "Game Over", "Congratulations! You have won the game.", easyClose = TRUE))
-      } else {
-        showModal(modalDialog(title = "Game Over", "Game Over! All heterotrophs have died.", easyClose = TRUE))
-      }
-    }
+    # Update electron donor choices dynamically
+    donors <- names(game_state()$players)[sapply(game_state()$players, function(p) p$type == "donor")]
+    updateSelectInput(session, "donor", choices = donors)
   })
   
-  observeEvent(input$evolve_btn, {
-    game_state(evolve_heterotroph(game_state(), input$evolution_path))
-  })
+  output$game_image <- renderImage({
+    # Provide the path to the image you want to display
+    list(src = "https://github.com/EAES-579-climate-ecosystem-science/microbial-energy-economy-game/blob/b4e2e48f57c0da3fbd08bf4a258b879c1a5ead46/Microbial%20Energy%20Economy%20PDF.png", 
+         contentType = 'image/png', 
+         alt = "Game State")
+  }, deleteFile = FALSE)
   
-  # Output the game state
   output$turn_counter <- renderText({
     if (is.null(game_state())) return("Turn: 0")
     paste("Turn:", game_state()$turn_counter)
@@ -204,8 +204,12 @@ server <- function(input, output, session) {
     if (is.null(game_state())) return(NULL)
     donors <- game_state()$players
     data.frame(
-      Donor = c("Cellulose", "Glucose", "Acetate", "Lactic Acid", "Hydrogen"),
-      Available = c(donors$cellulose$available, donors$glucose$available, donors$acetate$available, donors$lactic_acid$available, donors$hydrogen$available)
+      Donor = c("Cellulose", "Glucose", "Acetate", "Org Acid", "Hydrogen"),
+      Available = c(as.integer(donors$cellulose$available),
+                               as.integer(donors$glucose$available),
+                                                     as.integer(donors$acetate$available),
+                                                                as.integer(donors$org_acid$available),
+                                                                           as.integer(donors$hydrogen$available))
     )
   })
   
@@ -214,7 +218,11 @@ server <- function(input, output, session) {
     acceptors <- game_state()$players
     data.frame(
       Acceptor = c("Oxygen", "Nitrate", "Iron", "Sulfur", "CO2"),
-      Available = c(acceptors$oxygen$available, acceptors$nitrate$available, acceptors$iron$available, acceptors$sulfur$available, acceptors$CO2$available)
+      Available = c(as.integer(acceptors$oxygen$available),
+                               as.integer(acceptors$nitrate$available),
+                                          as.integer(acceptors$iron$available),
+                                                     as.integer(acceptors$sulfur$available),
+                                                                as.integer(acceptors$CO2$available))
     )
   })
   
