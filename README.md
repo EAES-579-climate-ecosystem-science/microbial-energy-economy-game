@@ -19,4 +19,4 @@ In this scenario, oxygen is limited, forcing you to adapt and use alternative el
 	•	Lose Condition: All heterotrophs die due to insufficient ATP or failure to adapt to anaerobic conditions.
 
 
-You can play the interactive Shiny app [Microbial Energy Economy Game](https://gavin-mcnicol.shinyapps.io/microbial-energy-economy-game/).
+You can play the interactive Shiny app [Microbial Energy Economy Game](https://gavin-mcnicol.shinyapps.io/microbial-energy-economy/).
