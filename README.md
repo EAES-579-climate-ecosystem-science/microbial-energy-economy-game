@@ -13,7 +13,7 @@ In this scenario, oxygen is abundant, and the main electron acceptor. The goal i
 
 ### Scenario 2: Oxygen Limiting
 
-In this scenario, oxygen is limited, forcing you to adapt and use alternative electron acceptors like nitrate, iron, and sulfur. As oxygen is depleted, you must evolve anaerobic capabilities to continue generating ATP.
+In this scenario, oxygen and nitrate are limited. As oxygen is depleted, you must evolve anaerobic capabilities to continue generating ATP. You will be forced to evolve anaerobiosis (activity under oxygen-free conditions) to use the alternative electron acceptor iron, then to evolve for fermentation to use sulfur and organic acids, and finally evolve methanogenesis to use CO2 and hydrogen gas. 
 
 	•	Win Condition: Successfully evolve your heterotrophs to survive anaerobically and oxidize all available glucose and cellulose, even as oxygen runs out.
 	•	Lose Condition: All heterotrophs die due to insufficient ATP or failure to adapt to anaerobic conditions.
